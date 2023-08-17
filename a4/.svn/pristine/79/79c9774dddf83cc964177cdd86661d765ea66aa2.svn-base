@@ -1,0 +1,64 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <csse2310a4.h>
+#include <csse2310a3.h>
+
+#define MAX_ARGS 2
+#define MIN_ARGS 1
+
+
+#define USAGE_MESSAGE "Usage: crackclient portnum [jobfile]\n"
+#define JOB_FILE_MESSAGE "crackclient: unable to open job file \"%s\"\n"
+
+typedef enum {
+    USAGE_ERROR = 1,
+    JOB_FILE_ERROR = 2,
+    CONNECTION_ERROR = 3,
+    CONNECTION_TERMINATED = 4,
+    OK = 0
+} ExitStatus;
+
+typedef struct {
+    char* portNum;
+    char* jobFile;
+} ClientDetails;
+
+ClientDetails parse_command_line(int argc, char** argv);
+
+int main(int argc, char** argv) {
+    ClientDetails clientDetails = parse_command_line(argc, argv);
+
+    printf("%s\n", clientDetails.portNum);
+
+    if (clientDetails.jobFile) {
+        printf("%s\n", clientDetails.jobFile);
+    }
+
+    return OK;
+}
+
+ClientDetails parse_command_line(int argc, char** argv) {
+    ClientDetails clientDetails = {.portNum = NULL, .jobFile = NULL};
+
+    // Skip program name
+    argc--;
+    argv++;
+
+    if (argc > MAX_ARGS || argc < MIN_ARGS) {
+        fprintf(stderr, USAGE_MESSAGE);
+        exit(USAGE_ERROR);
+    }
+
+    clientDetails.portNum = argv[0];
+
+    if (argc == 2) {
+        clientDetails.jobFile = argv[1];
+        FILE* jobFile = fopen(argv[1], "r");
+        if (!jobFile) {
+            fprintf(stderr, JOB_FILE_MESSAGE, clientDetails.jobFile);
+            exit(JOB_FILE_ERROR);
+        }
+    }
+
+    return clientDetails;
+}

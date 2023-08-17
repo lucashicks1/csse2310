@@ -1,0 +1,116 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <csse2310a4.h>
+#include <csse2310a3.h>
+
+#define MAX_ARGS 6
+
+#define MIN_PORT 1024
+#define MAX_PORT 65535
+
+#define USAGE_MESSAGE "Usage: crackserver [--maxconn connections] [--port "\
+    "portnum] [--dictionary filename]\n"
+
+typedef enum {
+    USAGE_ERROR = 1,
+    DICT_FILE_ERROR = 2,
+    NO_WORDS_ERROR = 3,
+    UNABLE_OPEN_ERROR = 4,
+    UNABLE_LISTEN_ERROR = 5
+} ExitStatus;
+
+typedef struct {
+    int maxConns;
+    char* portNum;
+    char* dictionaryFileName;
+} ServerDetails;
+
+ServerDetails parse_command_line(int argc, char** argv);
+int string_to_number(char* arg);
+void validate_port_number(int portNum);
+int validate_max_connections(int maxConns);
+void usage_error();
+
+int main(int argc, char** argv) {
+    ServerDetails serverDetails;
+
+    serverDetails = parse_command_line(argc, argv);
+
+    printf("PROGRAM\n");
+
+    return 0;
+}
+
+ServerDetails parse_command_line(int argc, char** argv) {
+    ServerDetails param = {.maxConns = -1, .portNum = NULL, 
+        .dictionaryFileName = NULL};
+
+    // Skip program name
+    argc--;
+    argv++;
+
+    if (argc > MAX_ARGS || argc % 2) {
+        usage_error();
+    }
+
+    while (argc) {
+        if (strcmp(argv[0], "--maxconn") == 0 && param.maxConns < 0) {
+            // TODO variable naming
+            int maxConns = string_to_number(argv[1]);
+            param.maxConns = validate_max_connections(maxConns);
+            printf("Conns - %d\n", param.maxConns);
+            // Check for max connections num
+        } else if (strcmp(argv[0], "--port") == 0 && !param.portNum) {
+            int portNum = string_to_number(argv[1]);
+            validate_port_number(portNum);
+            param.portNum = argv[1];
+            printf("Port - %s\n", argv[1]);
+            // Check for portnum
+        } else if (strcmp(argv[0], "--dictionary") == 0 
+                && !param.dictionaryFileName) {
+            printf("Dictionary - %s\n", argv[1]);
+            // Check for dictionary name
+        } else {
+            usage_error();
+        }
+
+        argc -= 2;
+        argv += 2;
+    }
+
+    return param;
+
+}
+
+int string_to_number(char* arg) {
+    char* end;
+    int num;
+    num = strtol(arg, &end, 10);
+
+    // Checking if entire string was read and converted
+    if (*end != '\0') {
+        usage_error();
+    } 
+    return num;
+}
+
+void validate_port_number(int portNum) {
+    if (portNum != 0 && (portNum < MIN_PORT || portNum > MAX_PORT)) {
+        usage_error();
+    }
+}
+
+int validate_max_connections(int maxConns) {
+    // Checking if negative number given
+    if (maxConns < 0) {
+        usage_error();
+    }
+    return maxConns;
+}
+
+void usage_error() {
+    fprintf(stderr, USAGE_MESSAGE);
+    exit(USAGE_ERROR);
+}

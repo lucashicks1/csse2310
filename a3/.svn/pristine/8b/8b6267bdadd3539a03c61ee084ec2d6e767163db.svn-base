@@ -1,0 +1,413 @@
+#include <csse2310a3.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+
+#define UQ_SOLUTION "demo-uqwordiply"
+#define MIN_NUM_ARGS 2
+#define MAX_NUM_ARGS 4
+
+#define JOB_DESCRIPTION "Job %d %s"
+#define NUM_LETTERS_JOB_DESCRIPTION 11
+#define NUM_PROCESSES_JOB 4
+#define NUM_PIPES_JOB 4
+
+#define START_JOB_MESSAGE "Starting job %d\n"
+#define START_JOB_MESSAGE "Starting job %d\n"
+
+#define UNABLE_EXECUTE "Job %d: Unable to execute test\n"
+#define STDOUT_INCORRECT "Job %d: Stdout differs\n"
+#define STDOUT_CORRECT "Job %d: Stdout matches\n"
+#define STDERR_INCORRECT "Job %d: Stderr differs\n"
+#define STDERR_CORRECT "Job %d: Stderr matches\n"
+#define EXIT_CORRECT "Job %d: Exit status matches\n"
+#define EXIT_INCORRECT "Job %d: Exit status differs\n"
+#define OVERALL_RESULT "testuqwordiply: %d out of %d tests passed\n"
+
+// Enum to hold exit statuses
+typedef enum {
+    OK = 0,
+    USAGE_ERROR = 2,
+    JOB_FILE_ERROR = 3,
+    JOB_FORMAT_ERROR = 4,
+    INPUT_FILE_ERROR = 5,
+    BLANK_JOB_ERROR = 6
+} ExitStatus;
+
+// Structure to hold program information including optional arguments and the
+// names of the test program file and job file
+typedef struct {
+    bool quiet;
+    bool parallel;
+    char* testProgramName;
+    char* jobFileName;
+} ProgramParameters;
+
+typedef struct {
+    // TODO, need to change this struct to make more sense
+    // Store Inputs files as a char**
+    // Store args as another char***
+    int totalNumJobs;
+    char*** jobs;
+    char** inputFiles;
+} JobDetails;
+
+// Function prototypes
+ProgramParameters parse_args(int argc, char** argv);
+JobDetails parse_job_file(char* jobFileName);
+void run_test_jobs(ProgramParameters programParams, JobDetails jobDetails);
+int* start_job(char* testFileName, char* inputFileName, char** args,
+        int jobNum, bool quiet);
+int run_test_program(char* testFileName, char* inputFileName, char** args,
+        int pipeFDs[NUM_PIPES_JOB][2]);
+int run_demo_program(char* inputFileName, char** args,
+        int pipeFDs[NUM_PIPES_JOB][2]);
+int run_uqcmp(char* checkDest, int jobNum, bool quiet,
+        int pipeFDs[NUM_PIPES_JOB][2]);
+
+// Prototypes for helper functions
+int count_character(char* word, char letter);
+
+// Prototypes for error functions
+void usage_error();
+void job_file_error(char* fileName);
+void input_file_error(char* inputFileName, int lineNum, char* fileName);
+void job_format_error(int lineNum, char* fileName);
+void blank_job_error(char* fileName);
+
+int main(int argc, char** argv) {
+    ProgramParameters programParams;
+    JobDetails jobDetails;
+
+    programParams = parse_args(argc, argv);
+    jobDetails = parse_job_file(programParams.jobFileName);
+
+    run_test_jobs(programParams, jobDetails);
+
+    return 0;
+}
+
+ProgramParameters parse_args(int argc, char** argv) {
+    ProgramParameters info = { .quiet= false, .parallel = false,
+            .testProgramName = NULL, .jobFileName = NULL};
+    // Skip over program name argument
+    argc--;
+    argv++;
+    // Check amount of arguments
+    // TODO GET RID OF MAGIC NUMBERS
+    if (argc < MIN_NUM_ARGS || argc > MAX_NUM_ARGS) {
+        usage_error();
+    }
+    // Check for optional arguments if they exist
+    while (argc > 2) {
+        if (strcmp(argv[0], "--quiet") == 0 && !info.quiet) {
+            info.quiet= true;
+        } else if (strcmp(argv[0], "--parallel") == 0 && !info.parallel) {
+            info.parallel = true;
+        } else {
+            usage_error();
+        }
+        argc--;
+        argv++;
+    }
+    if ((argv[0][0] == '-' && argv[0][1] == '-') || 
+            (argv[1][0] == '-' && argv[1][1] == '-')) {
+        usage_error();
+    }
+    info.testProgramName = argv[0];
+    info.jobFileName = argv[1];
+
+    return info;
+}
+
+JobDetails parse_job_file(char* jobFileName) {
+    char*** jobs = malloc(0);
+    char** inputFiles = malloc(0);
+    int totalNumJobs = 0;
+    char* line;
+    int lineNum = 0;
+    int numArgs;
+    FILE* file = fopen(jobFileName, "r");
+    FILE* inputFile;
+
+    if (!file) {
+        job_file_error(jobFileName);
+    }
+    while ((line = read_line(file))) {
+        lineNum++;
+        // Checks for comments and blank lines
+        if (line[0] == '#' || line[0] == '\0') {
+            continue;
+        }
+        // Check for char before comma, and number of commas
+        if (line[0] == ',' || count_character(line, ',') != 1) {
+            job_format_error(lineNum, jobFileName);
+        }
+        char** jobItems = split_line(line, ',');
+        inputFile = fopen(jobItems[0], "r");
+        if (!inputFile) {
+            input_file_error(jobItems[0], lineNum, jobFileName);
+        }
+        fclose(inputFile);
+        char** args = split_space_not_quote(jobItems[1], &numArgs);
+        char** job = malloc((numArgs + 2) * sizeof(char*));
+
+        job[0] = NULL; // To be replaced by file names for exec call
+        memcpy(job + 1, args, (numArgs + 1) * sizeof(char*));
+        jobs = realloc(jobs, (totalNumJobs + 1) * sizeof(char**));
+        inputFiles = realloc(inputFiles, (totalNumJobs + 1) * sizeof(char*));
+
+        inputFiles[totalNumJobs] = strdup(jobItems[0]);
+        jobs[totalNumJobs] = job;
+        totalNumJobs++;
+    }
+    fclose(file);
+    if (!totalNumJobs) {
+        blank_job_error(jobFileName);
+    }
+    JobDetails jobDetails = {.totalNumJobs = totalNumJobs, .jobs = jobs, 
+            .inputFiles = inputFiles};
+    return jobDetails;
+}
+
+void run_test_jobs(ProgramParameters programParams, JobDetails jobDetails) {
+    if (programParams.parallel) {
+        //int** jobProcessIDs =  malloc(0);
+
+        for (int i = 0; i < jobDetails.totalNumJobs; i++) {
+            printf(START_JOB_MESSAGE, i + 1);
+            fflush(stdout); //TODO Check if needed
+            //Start each job
+        }
+
+        // Sleep for 2 seconds
+        sleep(2);
+
+        for (int i = 0; i < jobDetails.totalNumJobs; i++) {
+            // Sends sigkills to each process 
+        }
+
+        for (int i = 0; i < jobDetails.totalNumJobs; i++) {
+            // Report the result of each job
+        }
+
+    } else {
+        int* processIDs;
+
+        for (int i = 0; i < jobDetails.totalNumJobs; i++) {
+            // Start the job
+            printf(START_JOB_MESSAGE, i + 1);
+            fflush(stdout); //TODO Check if needed
+            processIDs = start_job(programParams.testProgramName,
+                    jobDetails.inputFiles[i], jobDetails.jobs[i], i + 1,
+                    programParams.quiet);
+            // Sleep for 2 seconds
+            sleep(2);
+            // Send a sigkill to all processes for that job - use the pids
+            // returned by start_job
+            
+            // Report result of job
+        }
+        free(processIDs);
+    }
+}
+
+int* start_job(char* testFileName, char* inputFileName, char** args,
+        int jobNum, bool quiet) {
+    // Used to store 4 process IDs //TODO Check if all 4 are needed
+    int* jobProcessIDs = malloc(sizeof(int) * NUM_PROCESSES_JOB); 
+
+    // Creates fds for pipes numbered 1-4 as per diagram on spec sheet
+    int pipeFDs[NUM_PIPES_JOB][2];
+
+    // Creates pipes with file descriptors
+    pipe(pipeFDs[0]);
+    pipe(pipeFDs[1]);
+    pipe(pipeFDs[2]);
+    pipe(pipeFDs[3]);
+
+    //Create process A (test program)
+    jobProcessIDs[0] = run_test_program(testFileName, inputFileName, args,
+            pipeFDs);
+    
+    //Create process B (demo-uqwordiply)
+    jobProcessIDs[1] = run_demo_program(inputFileName, args, pipeFDs);
+    
+    // TODO Wait until both test and demo processes are finished
+
+
+    //Create process C (uqcmp)
+    jobProcessIDs[2] = run_uqcmp("stdout", jobNum,quiet, pipeFDs);
+
+    // ENSURE THAT STDOUT UQCMP IS DONE FIRST
+
+    
+    //Create process D (uqcmp)
+    jobProcessIDs[3] = run_uqcmp("stderr", jobNum,quiet, pipeFDs);
+
+    //Close read and write pipe ends in parent as not needed
+    close(pipeFDs[0][0]);
+    close(pipeFDs[0][1]);
+    close(pipeFDs[1][0]);
+    close(pipeFDs[1][1]);
+    close(pipeFDs[2][0]);
+    close(pipeFDs[2][1]);
+    close(pipeFDs[3][0]);
+    close(pipeFDs[3][1]);
+
+    return jobProcessIDs;
+}
+
+int run_test_program(char* testFileName, char* inputFileName, char** args,
+        int pipeFDs[NUM_PIPES_JOB][2]) {
+    
+    pid_t pID = fork();
+    //TODO do i need to check if fork fails??
+    if (!pID) {
+        // Child process
+        //Close read ends of pipes 1 & 2 as only writing to those pipes
+        close(pipeFDs[0][0]);
+        close(pipeFDs[1][0]);
+        // Close read and write ends of pipes 3 & 4 as not needed
+        close(pipeFDs[2][0]);
+        close(pipeFDs[2][1]);
+        close(pipeFDs[3][0]);
+        close(pipeFDs[3][1]);
+        // Redirect pipe write ends to stdout and stderr
+        dup2(pipeFDs[0][1], STDOUT_FILENO);
+        close(pipeFDs[0][1]);
+        dup2(pipeFDs[1][1], STDERR_FILENO);
+        close(pipeFDs[1][1]);
+        //Get stdin from file
+        int fdInput = open(inputFileName, O_RDONLY);
+        dup2(fdInput, STDIN_FILENO);
+        close(fdInput);
+        //Run test_program
+        args[0] = testFileName;
+        execv(testFileName, args);
+        perror("execv");
+    }
+    return pID;
+}
+
+int run_demo_program(char* inputFileName, char** args,
+        int pipeFDs[NUM_PIPES_JOB][2]) {
+        
+    pid_t pID = fork();
+    if (!pID) {
+        // Child process
+        //Close read ends of pipes 3 & 4 as only writing to those pipes
+        close(pipeFDs[2][0]);
+        close(pipeFDs[3][0]);
+        // Close read and write ends of pipes 1 & 2 as not needed
+        close(pipeFDs[0][0]);
+        close(pipeFDs[0][1]);
+        close(pipeFDs[1][0]);
+        close(pipeFDs[1][1]);
+        // Redirect pipe write ends to stdout and stderr
+        dup2(pipeFDs[2][1], STDOUT_FILENO);
+        close(pipeFDs[2][1]);
+        dup2(pipeFDs[3][1], STDERR_FILENO);
+        close(pipeFDs[3][1]);
+        //Get stdin from file
+        int fdInput = open(inputFileName, O_RDONLY);
+        dup2(fdInput, STDIN_FILENO);
+        close(fdInput);
+        //Run test program
+        args[0] = UQ_SOLUTION;
+        execvp(UQ_SOLUTION, args); // searching on path - use execvp not execv
+        perror("execvp\n");
+    }
+    return pID;
+}
+
+int run_uqcmp(char* checkDest, int jobNum, bool quiet,
+        int pipeFDs[NUM_PIPES_JOB][2]) {
+    pid_t pID = fork();
+    if (!pID) {
+        //Child process
+        //Close write ends of all pipes as not needed
+        close(pipeFDs[0][1]);
+        close(pipeFDs[1][1]);
+        close(pipeFDs[2][1]);
+        close(pipeFDs[3][1]);
+
+        if (strcmp(checkDest, "stdout")) {
+            // Close read ends of pipes 2 & 4 as not needed
+            close(pipeFDs[1][0]);
+            close(pipeFDs[3][0]);
+            // Redirect to file descriptors 3 and 4
+            dup2(pipeFDs[0][0], 3);
+            dup2(pipeFDs[2][0], 4);
+        } else {
+            // Close read ends of pipes 1 & 3 as not needed
+            close(pipeFDs[0][0]);
+            close(pipeFDs[2][0]);
+            // Redirect to file descriptors 3 and 4
+            dup2(pipeFDs[1][0], 3);
+            dup2(pipeFDs[3][0], 4);
+        }
+        int jobNumCopy = jobNum;
+        int jobNumDigits = 0;
+        while (jobNum != 0) {
+            jobNum /= 10;
+            jobNumDigits++;
+        }
+        char jobDesc[NUM_LETTERS_JOB_DESCRIPTION + jobNumDigits];
+        sprintf(jobDesc, JOB_DESCRIPTION, jobNumCopy, checkDest);
+        char* args[3] = {"uqcmp", jobDesc, NULL};
+        if (quiet) {
+            //Redirect to dev/null
+            int devNull = open("/dev/null", O_WRONLY);
+            dup2(devNull, STDOUT_FILENO);
+            dup2(devNull, STDERR_FILENO);
+            close(devNull);
+        } 
+        execvp(args[0], args);
+    }
+    return pID;
+}
+
+int count_character(char* word, char letter) {
+    int numOccurrences = 0;
+    for (int i = 0; word[i] != '\0'; i++) {
+        if (word[i] == letter) {
+            numOccurrences++;
+        }
+    }
+    return numOccurrences;
+}
+
+void usage_error() {
+    fprintf(stderr, "Usage: testwordiply [--quiet] [--parallel] testprogram "
+            "jobfile\n");
+    exit(USAGE_ERROR);
+}
+
+void job_file_error(char* fileName) {
+    fprintf(stderr, "testuqwordiply: Unable to open job file \"%s\"\n", 
+            fileName);
+    exit(JOB_FILE_ERROR);
+}
+
+void job_format_error(int lineNum, char* fileName) {
+    fprintf(stderr, "testuqwordiply: syntax error on line %d of \"%s\"\n", 
+            lineNum, fileName);
+    exit(JOB_FORMAT_ERROR);
+
+}
+
+void input_file_error(char* inputFileName, int lineNum, char* fileName) {
+    fprintf(stderr, "testuqwordiply: unable to open file \"%s\" specified on "
+            "line %d of \"%s\"\n", inputFileName, lineNum, fileName);
+    exit(INPUT_FILE_ERROR);
+}
+
+void blank_job_error(char* fileName) {
+    fprintf(stderr, "testuqwordiply: no jobs found in \"%s\"\n", fileName);
+    exit(BLANK_JOB_ERROR);
+}

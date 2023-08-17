@@ -1,0 +1,18 @@
+Welcome to UQWordiply!
+The starter word is: LAY
+Enter words containing this word.
+Enter guess 1:
+Enter guess 2:
+Enter guess 3:
+Enter guess 4:
+Guesses can't be the starter word - try again.
+Enter guess 4:
+Enter guess 5:
+You've already guessed that word - try again.
+Enter guess 5:
+
+Total length of words found: 26
+Longest word(s) found:
+DISPLAY (7)
+Longest word(s) possible:
+PHOTOPLAYWRIGHT (15)

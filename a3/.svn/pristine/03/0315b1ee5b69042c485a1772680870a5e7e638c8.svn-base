@@ -1,0 +1,57 @@
+#include <csse2310a3.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+
+
+// Enum to hold exit statuses
+typedef enum {
+    OK = 0,
+    USAGE_ERROR = 2,
+    JOB_FILE_ERROR = 3,
+    JOB_FORMAT_ERROR = 4,
+    INPUT_FILE_ERROR = 5,
+    BLANK_JOB_ERROR = 6
+} ExitStatus;
+
+// Structure to hold program information including optional arguments and the
+// names of the test program file and job file
+typedef struct {
+    bool quietMode;
+    bool parallel;
+    char* testProgramName;
+    char* jobFileName;
+} ProgramParameters;
+
+
+// Function prototypes
+ProgramParameters parse_args(int argc, char** argv);
+
+
+int main(int argc, char** argv) {
+    ProgramParameters programDetails;
+
+
+    programDetails = parse_args(argc, argv);
+
+    if (programDetails.quietMode) {
+        printf("Quiet mode used");
+    }
+
+    return 0;
+
+}
+
+
+ProgramParameters parse_args(int argc, char** argv) {
+
+    ProgramParameters info = { .quietMode = false, .parallel = false,
+            .testProgramName = NULL, .jobFileName = NULL};
+    //Skip over program name argument
+    argc--;
+    argv++;
+
+
+    return info;
+}

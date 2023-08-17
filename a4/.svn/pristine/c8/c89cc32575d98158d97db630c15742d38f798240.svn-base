@@ -1,0 +1,43 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <csse2310a4.h>
+#include <csse2310a3.h>
+
+typedef enum {
+    USAGE_ERROR = 1,
+    DICT_FILE_ERROR = 2,
+    NO_WORDS_ERROR = 3,
+    UNABLE_OPEN_ERROR = 4,
+    UNABLE_LISTEN_ERROR = 5
+} ExitStatus;
+
+typedef struct {
+    int maxConnections;
+    char* portNum;
+    char* dictionaryFileName;
+} ServerDetails;
+
+ServerDetails parse_command_line(int argc, char** argv);
+
+int main(int argc, char** argv) {
+    ServerDetails serverDetails;
+
+    serverDetails = parse_command_line(argc, argv);
+
+
+    printf("PROGRAM\n");
+
+    return 0;
+}
+
+ServerDetails parse_command_line(int argc, char** argv) {
+    ServerDetails param = {.maxConnections = 0, .portNum = NULL, 
+        .dictionaryFileName = NULL};
+
+
+
+    return param;
+
+}
