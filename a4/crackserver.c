@@ -260,7 +260,7 @@ int open_listen(const char* port) {
     }
 
     // Create a socket and bind it to a port
-    int listenfd = socket(AF_INET, SOCK_STREAM, 0); // 0=default protocol (TCP)
+    int listenfd = socket(AF_INET, SOCK_STREAM, 0); // 0=default protocol (IP)
 
     // Allow address (port number) to be reused immediately
     int v = 1;
